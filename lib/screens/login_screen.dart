@@ -14,102 +14,156 @@ class _LoginScreenState extends State<LoginScreen> {
 
   //Cerebro de la lógica de las animaciones
   StateMachineController? controller;
-  //SMI: State Machine Input
-  SMIBool? isChecking; //Activa el modo chismoso
-  SMIBool? isHandsUp; //Se tapa los ojos
-  SMITrigger? trigSuccess; //Se emociona
-  SMITrigger? trigFail; //Se pone triste
-  // 2.1 Variable para recorrido de la mirada
-  SMINumber? numLook; // 0..80 en tu asset
+  SMIBool? isChecking;
+  SMIBool? isHandsUp;
+  SMITrigger? trigSuccess;
+  SMITrigger? trigFail;
+  SMINumber? numLook;
 
-  // 1) FocusNode
+  //FocusNodes
   final emailFocus = FocusNode();
   final passFocus = FocusNode();
 
-  //3.2 Crear variable timer para detener la mirada al dejar de teclear
-    Timer? _typingDebounce;
+  //Timers
+  Timer? _typingDebounce;
 
-  //4.1 Controllers
+  //Controllers
   final emailCtrl = TextEditingController();
   final passCtrl = TextEditingController();
 
-  //4.2 Errores para mostrar en la UI
+  //Errores para mostrar en la UI
   String? emailError;
   String? passError;
 
-  //4.3 Validadores
-  bool isValidEmail(String email){
+  //Estado de carga y captcha
+  bool isLoading = false;
+  bool captchaChecked = false;
+
+  //Validadores
+  bool isValidEmail(String email) {
     final re = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
     return re.hasMatch(email);
   }
-    bool isValidPassword(String pass){
-    final re = RegExp(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$');
+
+  bool isValidPassword(String pass) {
+    final re =
+        RegExp(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$');
     return re.hasMatch(pass);
   }
 
-  //4.4 Acción al botón
-  void _onLogin() {
+  //Valida condiciones individuales para checklist dinámico
+  bool hasMinLength(String pass) => pass.length >= 8;
+  bool hasUppercase(String pass) => pass.contains(RegExp(r'[A-Z]'));
+  bool hasLowercase(String pass) => pass.contains(RegExp(r'[a-z]'));
+  bool hasNumberAndSymbol(String pass) =>
+      pass.contains(RegExp(r'\d')) && pass.contains(RegExp(r'[^A-Za-z0-9]'));
+
+  //Acción al presionar Login
+  Future<void> _onLogin() async {
+    if (isLoading) return;
+
     final email = emailCtrl.text.trim();
     final pass = passCtrl.text;
 
-  // Recalcular errores
-  final eError = isValidEmail(email) ? null : "Email inválido";
-  final pError = isValidPassword(pass)
-    ? null
-    : "Mínimo 8 carácteres, 1 mayúscula, 1 minúscula, 1 número y 1 caracter especial";
+    final eError = email.isEmpty
+        ? "El email no puede estar vacío"
+        : (isValidEmail(email) ? null : "Email inválido");
 
-  //Para avisar que hubo un cambio
-  setState(() {
-    emailError = eError;
-    passError = pError;
-  });
+    final pError = pass.isEmpty
+        ? "La contraseña no puede estar vacía"
+        : (isValidPassword(pass)
+            ? null
+            : "Contraseña inválida, revisa los requisitos");
 
-  // 4.6 Cerrar el teclado y bajar las manos
-  FocusScope.of(context).unfocus();
-  _typingDebounce?.cancel();
-  isChecking?.change(false);
-  isHandsUp?.change(false);
-  numLook?.value = 50.0; // Mirada neutral
+    final success =
+        (eError == null && pError == null && captchaChecked == true);
 
-  //4.7 Activar triggers
-  if (eError == null && pError == null) {
-    trigSuccess?.fire();
-  } else {
-    trigFail?.fire();
+    setState(() {
+      emailError = eError;
+      passError = pError;
+      isLoading = true;
+    });
+
+    //Cerrar teclado y bajar las manos
+    FocusScope.of(context).unfocus();
+    _typingDebounce?.cancel();
+    isChecking?.change(false);
+    isHandsUp?.change(false);
+    numLook?.value = 50.0;
+
+    //Esperar un frame antes del trigger
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    //Simular carga
+    await Future.delayed(const Duration(seconds: 1));
+
+    //Disparar animación
+    if (success) {
+      trigSuccess?.fire();
+    } else {
+      trigFail?.fire();
+    }
+
+    // 🔹 Reiniciar el captcha después de cada intento
+    setState(() {
+      captchaChecked = false;
+      isLoading = false;
+    });
   }
-  }
 
-  //2.1 Listeners (Oyentes)
   @override
   void initState() {
     super.initState();
+
     emailFocus.addListener(() {
-    if (emailFocus.hasFocus) {
-      //Manos abajo en email
-      isHandsUp?.change(false);
-      //Mirada neutral al enfocar el email
-      numLook?.value = 50;
-      isHandsUp?.change(false);
+      if (emailFocus.hasFocus) {
+        isHandsUp?.change(false);
+        numLook?.value = 50;
       }
     });
-    passFocus.addListener((){
-      //Manos arriba en Password
+
+    passFocus.addListener(() {
       isHandsUp?.change(passFocus.hasFocus);
+    });
+
+    //Validación en vivo email
+    emailCtrl.addListener(() {
+      final email = emailCtrl.text.trim();
+      setState(() {
+        if (email.isEmpty) {
+          emailError = null;
+        } else if (!isValidEmail(email)) {
+          emailError = "Email inválido";
+        } else {
+          emailError = null;
+        }
+      });
+    });
+
+    //Validación en vivo password
+    passCtrl.addListener(() {
+      setState(() {
+        final pass = passCtrl.text;
+        if (pass.isEmpty) {
+          passError = null;
+        } else if (!isValidPassword(pass)) {
+          passError = "Contraseña inválida, revisa los requisitos";
+        } else {
+          passError = null;
+        }
+      });
     });
   }
 
-
   @override
   Widget build(BuildContext context) {
-    //Obtener el tamaño de la pantalla del dispositivo
     final Size size = MediaQuery.of(context).size;
+
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      //Evita el notch o la cámara frontal
       body: SafeArea(
         child: SingleChildScrollView(
           child: Padding(
-            //Espaciado
             padding: const EdgeInsets.all(20),
             child: Column(
               children: [
@@ -119,160 +173,206 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: RiveAnimation.asset(
                     'assets/animated_login_character.riv',
                     stateMachines: ["Login Machine"],
-                    //Al iniciarse
-                    onInit: (artboard){
-                      controller =
-                      StateMachineController.fromArtboard(
+                    onInit: (artboard) {
+                      controller = StateMachineController.fromArtboard(
                         artboard,
                         "Login Machine",
                       );
-                      //Verificar que inició bien
-                      if(controller == null) return;
+                      if (controller == null) return;
                       artboard.addController(controller!);
-                      isChecking  = controller!.findSMI('isChecking');
-                      isHandsUp   = controller!.findSMI('isHandsUp');
+                      isChecking = controller!.findSMI('isChecking');
+                      isHandsUp = controller!.findSMI('isHandsUp');
                       trigSuccess = controller!.findSMI('trigSuccess');
-                      trigFail    = controller!.findSMI('trigFail');
-                      //2.3 Enlazar la variable con la animación
-                      numLook     = controller!.findSMI('numLook');
+                      trigFail = controller!.findSMI('trigFail');
+                      numLook = controller!.findSMI('numLook');
                     },
-                    ),
+                  ),
                 ),
-                //Espacio entre el oso y el texto email
-                const SizedBox(height: 10,),
-                //Campo de texto del email
+                const SizedBox(height: 10),
+
+                //EMAIL
                 TextField(
-                  // 1.3 Asignar el FocusNode al TextfField
                   focusNode: emailFocus,
-                  //4.8 Enlazar controlller al TextField
                   controller: emailCtrl,
                   onChanged: (value) {
-                    //2.4 Implementando NumLook
-                    //Activa el modo
-                    isChecking!.change(true);
-
-                    // Ajuste de límites de 0 a 100
-                    // 80.0 es una medida de calibración
-                    final look = (value.length / 70.0 * 100.0).clamp(0.0, 100.0);
+                    isChecking?.change(true);
+                    final look =
+                        (value.length / 70.0 * 100.0).clamp(0.0, 100.0);
                     numLook?.change(look);
 
-                    //3.3 Debounce: si vuelve a teclear, reinicia el contador
-                    _typingDebounce?.cancel(); //Cancela cualquier timer existente
-                    _typingDebounce = Timer(const Duration(seconds: 3), () {
-                      if(!mounted){
-                        return; // Si la pantalla se cierra
-                      }
-                      //Mirada neutra
+                    _typingDebounce?.cancel();
+                    _typingDebounce =
+                        Timer(const Duration(seconds: 3), () {
+                      if (!mounted) return;
                       isChecking?.change(false);
                     });
                   },
-                  //Para que aparezca el @ en Móviles UI/UX
                   keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
-                    //4.9 Mostrar errores
                     errorText: emailError,
                     labelText: 'Email',
                     prefixIcon: const Icon(Icons.mail),
                     border: OutlineInputBorder(
-                      //esquinas redondeadas
                       borderRadius: BorderRadius.circular(12),
-                    )
+                    ),
                   ),
                 ),
-                SizedBox(height: 12,),
-                  TextField(
-                    //Asignas el FocusNode al Textf¿Field
-                    focusNode: passFocus,
-                    controller: passCtrl,
-                    onChanged: (value) {
-                    if (isChecking != null){
-                      //Reafirma no taparse los ojos al escribir el email
-                      //isChecking!.change(false);
-                    }
+                const SizedBox(height: 12),
+
+                //PASSWORD
+                TextField(
+                  focusNode: passFocus,
+                  controller: passCtrl,
+                  onChanged: (value) {
                     if (isHandsUp == null) return;
-                    //Activa el modo
                     isHandsUp!.change(true);
                   },
-                    obscureText: obscurePassword,
-                    decoration: InputDecoration(
-                      //4.9 Mostrar errores
-                      errorText: passError,
-                      labelText: 'Password',
-                      prefixIcon: const Icon(Icons.lock),
-                      border: OutlineInputBorder(
+                  obscureText: obscurePassword,
+                  decoration: InputDecoration(
+                    errorText: passError,
+                    labelText: 'Password',
+                    prefixIcon: const Icon(Icons.lock),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscurePassword
+                            ? Icons.visibility
+                            : Icons.visibility_off,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          obscurePassword = !obscurePassword;
+                        });
+                      },
+                    ),
+                  ),
+                ),
+
+                //Checklist dinámico
+                const SizedBox(height: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildCheckItem("Mínimo 8 caracteres",
+                        hasMinLength(passCtrl.text)),
+                    _buildCheckItem("1 letra mayúscula",
+                        hasUppercase(passCtrl.text)),
+                    _buildCheckItem("1 letra minúscula",
+                        hasLowercase(passCtrl.text)),
+                    _buildCheckItem(
+                        "1 número y 1 carácter especial",
+                        hasNumberAndSymbol(passCtrl.text)),
+                  ],
+                ),
+
+                const SizedBox(height: 10),
+
+                //Captcha simulado
+                CheckboxListTile(
+                  title: const Text("No soy un robot 🤖"),
+                  value: captchaChecked,
+                  onChanged: (value) {
+                    setState(() {
+                      captchaChecked = value ?? false;
+                    });
+                  },
+                  controlAffinity: ListTileControlAffinity.leading,
+                  activeColor: Colors.purple,
+                ),
+
+                //Forgot password
+                SizedBox(
+                  width: size.width,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () {},
+                      child: const Text(
+                        'Forgot your password?',
+                        style: TextStyle(
+                          decoration: TextDecoration.underline,
+                          color: Colors.black,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                //Botón de Login
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: size.width,
+                  height: 50,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.purple,
+                      shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          obscurePassword ? Icons.visibility : Icons.visibility_off,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            obscurePassword = !obscurePassword;
-                          });
-                        },
-                      ),
                     ),
+                    onPressed: isLoading ? null : _onLogin,
+                    child: isLoading
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text(
+                            'Login',
+                            style: TextStyle(color: Colors.white),
+                          ),
                   ),
-                  const SizedBox (height: 10),
-                  //Texto Olvidé la contraseña como botón
-                  SizedBox(
-                    width: size.width,
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
+                ),
+
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: size.width,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text("New here?"),
+                      TextButton(
                         onPressed: () {},
                         child: const Text(
-                          'Forgot your password?',
-                          style: TextStyle(
-                            decoration: TextDecoration.underline,
-                            color: Colors.black,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  //Botón de Login
-                  const SizedBox(height: 10),
-                  //Botón estilo Android
-                  MaterialButton(
-                    minWidth: size.width,
-                    height: 50,
-                    color: Colors.purple,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)
-                    ),
-                    onPressed: _onLogin,
-                    child: Text(
-                      'Login',
-                      style: TextStyle(color: Colors.white)),
-                  ),
-                  const SizedBox(height: 10,),
-                  SizedBox(
-                    width: size.width,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text("New here?"),
-                        TextButton(onPressed: (){}, child: const Text(
                           "Register",
                           style: TextStyle(
                             color: Colors.black,
-                            //Negritas
                             fontWeight: FontWeight.bold,
-                            //Subrayado
                             decoration: TextDecoration.underline,
-                          )))
-                      ],)
-                  )
+                          ),
+                        ),
+                      )
+                    ],
+                  ),
+                )
               ],
             ),
           ),
-        )
-      )
+        ),
+      ),
     );
   }
-  //Liberación de recursos/Limpieza de Focus
+
+  //Widget auxiliar para checklist
+  Widget _buildCheckItem(String text, bool passed) {
+    return Row(
+      children: [
+        Icon(
+          passed ? Icons.check_circle : Icons.cancel,
+          color: passed ? Colors.green : Colors.red,
+          size: 18,
+        ),
+        const SizedBox(width: 8),
+        Text(text),
+      ],
+    );
+  }
+
   @override
   void dispose() {
     passCtrl.dispose();
